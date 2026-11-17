@@ -1,0 +1,26 @@
+{
+  "name": "@ramenvr/autopilot-browser",
+  "version": "0.1.0",
+  "description": "Autopilot browser/TypeScript plugin — connects a PixiJS (or any JS) game to the Autopilot brain",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["autopilot", "playtesting", "browser", "pixi"],
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

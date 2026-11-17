@@ -10,11 +10,12 @@ import os
 from .base import Engine, OpEngine  # noqa: F401
 from .godot import Godot
 from .roblox import Roblox
+from .browser import Browser
 from .roblox_connector import RobloxMcp
 from .unity import Unity
 from .unreal import Unreal
 
-ENGINES = {e.name: e for e in (Unreal(), Unity(), Godot(), Roblox(), RobloxMcp())}
+ENGINES = {e.name: e for e in (Unreal(), Unity(), Godot(), Roblox(), RobloxMcp(), Browser())}
 DEFAULT = "unreal"
 
 
