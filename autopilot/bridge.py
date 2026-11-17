@@ -15,6 +15,7 @@ import itertools
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -738,6 +739,14 @@ def same_project(a, b):
 # no Origin, and Unreal's WebSocket library always sends http://<the URL's host>, without its port. A page on any other
 # site, or on another port here, can't send one of these.
 BRIDGE_ORIGINS = [None, "http://127.0.0.1", "http://localhost"]
+BROWSER_ORIGIN_RE = re.compile(r"^https?://(127\.0\.0\.1|localhost)(:\d+)?$")
+
+
+def bridge_origins():
+    """Allowed WebSocket Origin headers; allows localhost/127.0.0.1 with ports when AUTOPILOT_ENGINE=browser."""
+    if os.environ.get("AUTOPILOT_ENGINE", "").strip().lower() == "browser":
+        return [*BRIDGE_ORIGINS, BROWSER_ORIGIN_RE]
+    return BRIDGE_ORIGINS
 
 
 def serve_local(host="127.0.0.1", port=8765, wait=None, role="cli", announce_as=BRAIN_FILE, extra=None,
@@ -835,7 +844,7 @@ def serve_local(host="127.0.0.1", port=8765, wait=None, role="cli", announce_as=
         link.close(why)
         state["sessions"].pop(link.session, None)  # (no longer resumable)
 
-    server = serve(handler, host, port, max_size=None, origins=BRIDGE_ORIGINS)
+    server = serve(handler, host, port, max_size=None, origins=bridge_origins())
     threading.Thread(target=server.serve_forever, daemon=True).start()
     http = None
     if http_port is not None:

@@ -38,7 +38,7 @@ import type { AutopilotGameApi } from '@ramenvr/autopilot-browser';
 
 const autopilotApi: AutopilotGameApi = {
   getProjectName: () => 'my-city-game',
-  getProjectDir: () => location.href,
+  getProjectDir: () => '', // local filesystem path if known, else ''
   getGameTime: () => myGame.tick,
   isRunning: () => myGame.clock.speed > 0,
 
@@ -83,14 +83,14 @@ const autopilotApi: AutopilotGameApi = {
     };
   },
   getMovement() {
-    return { speed: 0, max_speed: 0, walk: 0, run: 0, jump: 0, step: 0, air_control: 0 };
+    return { walk_speed: 0, jump_z: 0, gravity: 0, half_height: 0, radius: 0, step: 0, air_control: 0 };
   },
 
   getTransforms(ids) {
-    const out: Record<string, { at: { x: number; y: number; z: number }; active: boolean }> = {};
+    const out: Record<string, { location: { X: number; Y: number; Z: number }; active: boolean }> = {};
     for (const id of ids) {
       const obj = myGame.getObject(id);
-      if (obj) out[id] = { at: { x: obj.x, y: 0, z: -obj.y }, active: true };
+      if (obj) out[id] = { location: { X: obj.x, Y: 0, Z: -obj.y }, active: true };
     }
     return out;
   },
@@ -137,7 +137,8 @@ The brain detects a browser project when:
 1. `package.json` exists in the project directory, **and**
 2. `@ramenvr/autopilot-browser` appears in `dependencies` or `devDependencies`.
 
-Alternatively, set `AUTOPILOT_ENGINE=browser` to force detection regardless of `package.json`.
+Alternatively, set `AUTOPILOT_ENGINE=browser` to force detection regardless of `package.json`
+and allow browser WebSocket `Origin` headers with localhost ports (e.g. `http://localhost:5173`).
 
 ---
 

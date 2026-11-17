@@ -1,4 +1,5 @@
-# Browser Engine
+
+## The engine: Browser
 
 The browser engine runs autopilot against a TypeScript / PixiJS (or any JS framework) game
 running in a browser tab. The plugin (`@ramenvr/autopilot-browser`) is a small ESM module the
@@ -9,28 +10,33 @@ Godot and Unity plugins answer.
 
 ## Object IDs
 
-Objects are game entities. Every id is a string with the format `"<kind>:<index>"`:
+Objects are game entities exposed by the game's `AutopilotGameApi` implementation. By
+convention, every id is a string with the format `"<kind>:<id>"`:
 
-| id | meaning |
-|----|---------|
-| `"tile:3456"` | grid tile at index 3456 (y × W + x in a 128 × 128 map) |
-| `"building:3456"` | same tile, accessed as a building (zone + level > 0) |
-| `"facility:3456"` | same tile, accessed as a facility anchor |
+| id | example meaning |
+|----|-----------------|
 | `"camera:0"` | the camera itself |
 | `"ui:<id>"` | a UI element (button, slider, …) |
+| `"tile:3456"` | e.g. a grid tile at index 3456 (city-builder convention: `y × W + x`) |
+| `"building:3456"` | e.g. a built-up building on that tile |
+| `"facility:3456"` | e.g. a facility anchor on that tile |
 
 ---
 
 ## Actors
 
+`game.actors(cls)` calls `find` with `{"class": cls}` and returns matching object ids:
+
 ```python
-game.actors("building")   # ids of all tiles that are built-up zones
-game.actors("tile")       # ids of all 128×128 = 16 384 tiles
 game.actors("camera")     # ["camera:0"]
-game.actors("facility")   # ids of tiles with a facility anchor
+game.actors("ui")         # ids of UI elements
+game.actors("building")   # example: ids of tiles that are built-up zones
+game.actors("tile")       # example: ids of all map tiles
 ```
 
-The browser plugin answers `find` to supply these lists.
+`game.all_actors()` returns all objects (`find` with no filter). `game.named(part)` matches
+ids containing `part` case-insensitively (`game.name_of("tile:3456")` is `"tile:3456"`).
+Any unknown class returns an empty list.
 
 ---
 
@@ -38,22 +44,26 @@ The browser plugin answers `find` to supply these lists.
 
 ```python
 # Read a property from a game object
-game.get("tile:3456", "zone")        # → zone enum value (0 None, 1 R, 2 C, 3 I)
-game.get("camera:0", "cx")           # → camera centre-x in pixels
-game.get("tile:3456", "happiness")   # → 0..100
+game.get("camera:0", "zoom")         # → zoom factor
+game.get("tile:3456", "zone")        # → example: tile property
 
-# Write a property
-game.set("camera:0", "zoom", 2.0)
+# Read all properties of a game object
+game.props("camera:0")
 
-# Call a method
-game.call("tile:3456", "applyZone", {"zone": 1, "x0": 10, "y0": 10, "x1": 15, "y1": 15})
+# Write a property (for verification setup)
+game.set("camera:0", "zoom", 2.0, why="zoom in on target area")
+
+# Call a method (parameters passed as keyword arguments)
+game.call("tile:3456", "applyZone", zone=1, x0=10, y0=10, x1=15, y1=15)
 ```
 
 Under the hood these call `window.__autopilot__.getObject(id).props[prop]`,
 `window.__autopilot__.setProperty(id, prop, value)` and
 `window.__autopilot__.callMethod(id, method, args)`.
 
-Tile properties (from `SimState` typed arrays, index = tile id):
+### Example: City-builder (`SimState`) properties
+
+In a tile-grid city builder exposing `SimState` typed arrays (index = tile id):
 
 | prop | type | meaning |
 |------|------|---------|
@@ -71,131 +81,61 @@ Tile properties (from `SimState` typed arrays, index = tile id):
 | `terrain` | uint8 | 0 Empty, 1 Water, 2 Forest, 3 Rock |
 | `facility` | uint8 | encoded facility |
 
-Camera properties:
-
-| prop | meaning |
-|------|---------|
-| `cx` | centre-x in screen pixels |
-| `cy` | centre-y in screen pixels |
-| `zoom` | zoom factor |
+Camera properties typically include `cx` (centre-x in pixels), `cy` (centre-y in pixels), and
+`zoom` (zoom factor).
 
 ---
 
 ## Coordinate system
 
-The browser plugin uses a 2D coordinate system:
+The browser plugin uses a 2D pixel coordinate system mapped into the kit frame (1 px = 1 cm):
 
-- X: right (pixels)
-- Z: up (negated Y: Z = −pixelY)
-- Y: always 0 (there is no depth axis)
+- X: right (`pixels`)
+- Z: up (`-pixelY`)
+- Y: always `0` (there is no depth axis)
 
-`game.pose()` returns the camera centre as the "player position" in the kit frame:
+`game.pose()` returns the camera/player position in the kit frame:
 
 ```python
 pose = game.pose()
-# pose["at"] = {"x": cx_pixels, "y": 0, "z": -cy_pixels}
-# pose["yaw"] = 0  (top-down camera has no meaningful yaw)
+# pose["at"] = Vec(cx_pixels, 0, -cy_pixels)
+# pose["yaw"] = 0  (2D top-down camera)
 ```
 
-`game.to_kit({"x": px, "y": py})` converts a browser pixel position to the kit frame.
-`game.to_native(vec)` converts back.
+`game.to_kit({"x": px, "y": py})` converts a browser pixel position to the kit frame `Vec(px, 0, -py)`.
+`game.to_native(vec)` converts a kit `Vec` back to `{"x": vec.x, "y": -vec.z}`.
+`game.loc(id)`, `game.locs(ids)`, `game.bounds(id)` and `game.view()` already return kit-frame coordinates.
 
 ---
 
 ## Input
 
-Key names follow the same FKey convention as the other engines:
+Key names follow the same FKey convention as the other engines (`W`, `A`, `S`, `D`, `SpaceBar`,
+`LeftShift`, `Escape`, `Enter`, `LeftMouseButton`, etc.):
 
-| key | effect |
-|-----|--------|
-| `W` / `ArrowUp` | pan camera up |
-| `S` / `ArrowDown` | pan camera down |
-| `A` / `ArrowLeft` | pan camera left |
-| `D` / `ArrowRight` | pan camera right |
-| `+` / `=` | zoom in |
-| `-` | zoom out |
-| `Space` | pause / unpause |
-| `1` / `2` / `4` | set game speed |
+- `game.press(key)` — quick key press
+- `game.hold(key)` / `game.release(key)` / `game.release_all()` — held keys
+- `game.post("input", {"action": action})` or `game.request("input", {"action": action, "value": value})` — named game input actions
+- `game.pointer(screen_x, screen_y)` — move virtual pointer to normalized screen coords (`-1..1` from centre, `+y` up)
 
-Tool hotkeys (press to select a tool):
+Example keys and actions for a 2D city-builder:
 
-| key | tool |
-|-----|------|
-| `B` | road |
-| `V` | widen road (4-lane) |
-| `T` | bridge |
-| `R` | zone residential |
-| `C` | zone commercial |
-| `I` | zone industrial |
-| `P` | power plant |
-| `L` | power line |
-| `Q` | water pump |
-| `U` | water pipe |
-| `X` | bulldoze |
-| `F` | clear forest |
-| `G` | park |
-| `H` | clinic |
-| `J` | school |
-| `N` | police station |
-| `M` | fire station |
-
-City-specific input actions (use `game.input_action(action)`):
-
-| action | effect |
-|--------|--------|
-| `"speed_pause"` | set speed to 0 (pause) |
-| `"speed_1x"` | set speed to 1× |
-| `"speed_2x"` | set speed to 2× |
-| `"speed_4x"` | set speed to 4× |
-| `"undo"` | undo last command |
-| `"tool_road"` | select road tool |
-| `"tool_zone_r"` | select residential zone tool |
-| `"tool_zone_c"` | select commercial zone tool |
-| `"tool_zone_i"` | select industrial zone tool |
-| `"tool_bulldoze"` | select bulldoze tool |
-| `"tool_inspect"` | select inspect tool |
+| key / action | effect |
+|--------------|--------|
+| `W` / `A` / `S` / `D` / `ArrowUp`..`ArrowRight` | pan camera |
+| `+` / `=` / `-` | zoom in / out |
+| `Space` / `"speed_pause"` | pause / unpause |
+| `1` / `2` / `4` / `"speed_1x"`, `"speed_2x"`, `"speed_4x"` | set game speed |
+| `B`, `V`, `T`, `R`, `C`, `I`, `P`, `L`, `Q`, `U`, `X`, `F`, `G`, `H`, `J`, `N`, `M` | tool hotkeys |
+| `"undo"`, `"tool_road"`, `"tool_zone_r"`, `"tool_zone_c"`, `"tool_zone_i"`, `"tool_bulldoze"`, `"tool_inspect"` | named input actions |
 
 ---
 
-## Screen text
+## Screen text and UI
 
-`game.screen()` returns a flat dict of HUD text values:
-
-| key | value |
-|-----|-------|
-| `"money"` | formatted cash (e.g. `"฿ 12,345"`) |
-| `"net"` | monthly income − upkeep (e.g. `"+฿ 230/เดือน"`) |
-| `"pop"` | population (e.g. `"1,234"`) |
-| `"happiness"` | city happiness 0–100 (or `"—"` before anyone moves in) |
-| `"month"` | current month number |
-| `"speed"` | current game speed (0, 1, 2, or 4) |
-| `"demand_R"` | zone R demand value |
-| `"demand_C"` | zone C demand value |
-| `"demand_I"` | zone I demand value |
-| `"tax_R"` | zone R tax % |
-| `"tax_C"` | zone C tax % |
-| `"tax_I"` | zone I tax % |
-| `"runway"` | runway band text (financial health) |
-| `"game_over"` | `""` or `"bankrupt"` / `"victory"` |
-
----
-
-## UI elements
-
-`game.ui()` returns toolbar buttons, speed controls, tax sliders, service-budget controls and
-any other interactive element the HUD exposes. Use `game.act_ui(id, action, params)` to click
-or set a value.
-
----
-
-## Classes / kinds
-
-When the brain calls `game.actors(cls)` the browser plugin maps `cls` to a kind:
-
-- `"tile"` → all 16 384 tiles
-- `"building"` → tiles with zone ≥ 1 and level ≥ 1
-- `"facility"` → tiles with a facility anchor
-- `"camera"` → `["camera:0"]`
-- `"ui"` → all UI elements (same as `game.ui()`)
-
-Any unknown class returns an empty list.
+- `game.screen()` returns a flat `{key: text}` dict of HUD text values (for example `"money"`,
+  `"net"`, `"pop"`, `"happiness"`, `"month"`, `"speed"`, `"demand_R"`, `"game_over"`).
+- `game.ui()` returns interactive UI elements (`id`, `kind`, `name`, `label`, `enabled`, `x`, `y`,
+  `width`, `height`, and state such as `checked`, `selected`, `value`).
+- `game.ui_act(id=element_id, action="click")` (or `action="set"`, `value=...`, `text=...`,
+  `option=...`, `to=...`) interacts with a UI element.

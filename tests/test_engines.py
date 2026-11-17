@@ -19,6 +19,7 @@ from autopilot.kit.game import Game, GameError
 def test_engine_from_hello():
     assert engines.for_hello({"engine": "unity"}).name == "unity"
     assert engines.for_hello({"engine": "Godot"}).name == "godot"
+    assert engines.for_hello({"engine": "browser"}).name == "browser"
     assert engines.for_hello({"engine": "unreal"}).name == "unreal"
     for hello in ({}, None, {"engine": ""}, {"engine": "cryengine"}, "not a dict"):
         assert engines.for_hello(hello).name == "unreal"  # (a plugin from before engines is Unreal's)
@@ -82,6 +83,21 @@ def _godot(tmp_path):
     return d
 
 
+def _browser(tmp_path):
+    d = tmp_path / "CityGame"
+    for sub in ("src", "node_modules/pkg", "dist"):
+        (d / sub).mkdir(parents=True)
+    (d / "package.json").write_text(json.dumps({
+        "name": "city-game",
+        "dependencies": {"@ramenvr/autopilot-browser": "^0.1.0"},
+    }))
+    (d / "index.html").write_text("<html></html>")
+    (d / "src" / "main.ts").write_text("export const x = 1;")
+    (d / "node_modules" / "pkg" / "index.js").write_text("module.exports = {};")
+    (d / "dist" / "bundle.js").write_text("console.log(1);")
+    return d
+
+
 def test_find_project_for_each_engine(tmp_path):
     u = _unreal(tmp_path)
     eng, path = engines.find_project(str(u / "Shooter.uproject"))
@@ -95,11 +111,16 @@ def test_find_project_for_each_engine(tmp_path):
     for p in (g, g / "project.godot"):
         eng, path = engines.find_project(str(p))
         assert eng.name == "godot" and os.path.samefile(path, g), p
+    b = _browser(tmp_path)
+    for p in (b, b / "package.json", b / "src", b / "src" / "main.ts"):
+        eng, path = engines.find_project(str(p))
+        assert eng.name == "browser" and os.path.samefile(path, b), p
     assert engines.find_project(str(tmp_path)) == (None, None)
     assert engines.find_project(str(tmp_path / "nothing")) == (None, None)
     assert engines.find_project(str(g), "unity") == (None, None)
     assert engines.get("godot").project_name(str(g)) == "Platformer"
     assert engines.get("unreal").project_name(str(u / "Shooter.uproject")) == "Shooter"
+    assert engines.get("browser").project_name(str(b)) == "city-game"
 
 
 def test_find_project_asks_the_game(tmp_path, monkeypatch):
@@ -250,6 +271,14 @@ def test_codex_rules_per_engine():
     # (Unreal's are as they were)
     assert unreal.codex_path("Saved/AutopilotCodex/blueprints/BP_Door.txt") == "blueprints/BP_Door.txt"
     assert unreal.codex_path("Assets/Scripts/Player.cs") is None
+    browser = engines.get("browser")
+    for ok in ("src/main.ts", "index.html", "package.json", "src/App.tsx", "styles/app.css"):
+        assert browser.codex_path(ok) == ok, ok
+    for bad in ("node_modules/x.js", "src/node_modules/x.js", "dist/app.js", "README.md", "../x.ts", "/x.ts", "", None):
+        assert browser.codex_path(bad) is None, bad
+    assert browser.skip_dir("src/node_modules") is True
+    assert browser.skip_dir("packages/web/dist") is True
+    assert browser.skip_dir("src/components") is False
 
 
 def test_fetched_codex_follows_the_games_engine(tmp_path):
@@ -369,6 +398,11 @@ def test_frames_known_values():
     unreal = engines.get("unreal")
     assert (unreal.to_kit({"X": 1, "Y": 2, "Z": 3}) == Vec(1, 2, 3)
             and unreal.to_native(Vec(1, 2, 3)) == {"X": 1, "Y": 2, "Z": 3})
+    browser = engines.get("browser")
+    assert browser.to_kit({"x": 100, "y": 250}) == Vec(100, 0, -250)
+    assert browser.to_native(Vec(100, 0, -250)) == {"x": 100.0, "y": 250.0}
+    assert browser.name_of("tile:3456") == "tile:3456"
+    assert browser.name_of("building:12") == "building:12"
 
 
 # -- the Game backend over the engine-neutral ops ----------------------------------------------------------
@@ -534,7 +568,7 @@ def test_prompt_names_the_engine_and_appends_its_section():
     # Unreal's prompt is the one it was tuned on: KIT.md word for word, no engine section
     assert "a video game made in Unreal Engine." in unreal and kit in unreal and "## The engine:" not in unreal
     assert "GAMEPLAY" in unreal and "{engine}" not in unreal and "{kit}" not in unreal
-    for name, title in (("unity", "Unity"), ("godot", "Godot")):
+    for name, title in (("unity", "Unity"), ("godot", "Godot"), ("browser", "Browser")):
         text = session.system_prompt(engines.get(name), "runs/r")
         assert f"a video game made in {title}." in text and f"## The engine: {title}" in text
         assert "## The engine: Unreal Engine" not in text and "GetPlayerCharacter" not in text

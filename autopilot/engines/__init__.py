@@ -8,9 +8,9 @@ AUTOPILOT_ENGINE (an engine's name) chooses one instead, for every project found
 import os
 
 from .base import Engine, OpEngine  # noqa: F401
+from .browser import Browser
 from .godot import Godot
 from .roblox import Roblox
-from .browser import Browser
 from .roblox_connector import RobloxMcp
 from .unity import Unity
 from .unreal import Unreal

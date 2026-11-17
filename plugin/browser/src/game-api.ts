@@ -1,8 +1,12 @@
+export type Vec3 =
+  | { x: number; y: number; z: number }
+  | { X: number; Y: number; Z: number };
+
 export interface GameObject {
   id: string;        // e.g. "building:12", "tile:3456"
   kind: string;      // "building", "tile", "camera", "ui"
-  x: number;        // pixel x
-  y: number;        // pixel y
+  x: number;         // pixel x
+  y: number;         // pixel y
   width?: number;
   height?: number;
   props: Record<string, unknown>;
@@ -22,28 +26,48 @@ export interface UiElement {
 
 export interface ViewObject {
   id: string;
+  name?: string;
   distance: number;
   screen_x: number;  // -1..1 from center
   screen_y: number;  // -1..1 from center, y up
-  on_screen: boolean;
+  on_screen?: boolean;
+  crosshair_on?: boolean;
 }
 
 export interface Pose {
-  at: { x: number; y: number; z: number };  // kit frame: camera centre
-  eye: { x: number; y: number; z: number };
+  at: Vec3;          // kit frame: camera centre
+  eye: Vec3;
   yaw: number;
   pitch: number;
-  velocity: { x: number; y: number; z: number };
+  velocity: Vec3;
+  on_ground?: boolean;
 }
 
 export interface Movement {
-  speed: number;
-  max_speed: number;
-  walk: number;
-  run: number;
-  jump: number;
-  step: number;
-  air_control: number;
+  walk_speed?: number;
+  jump_z?: number;
+  gravity?: number;
+  half_height?: number;
+  radius?: number;
+  step?: number;
+  max_slope?: number;
+  air_control?: number;
+  // Legacy aliases
+  speed?: number;
+  max_speed?: number;
+  walk?: number;
+  run?: number;
+  jump?: number;
+}
+
+export interface TransformEntry {
+  location?: Vec3;
+  at?: Vec3;
+  center?: Vec3;
+  extent?: Vec3;
+  rotation?: { Pitch: number; Yaw: number; Roll: number } | Record<string, number>;
+  velocity?: Vec3;
+  active?: boolean;
 }
 
 export interface AutopilotGameApi {
@@ -53,12 +77,24 @@ export interface AutopilotGameApi {
   getGameTime(): number;
   isRunning(): boolean;
 
+  // Session control (optional; falls back to inputAction if omitted)
+  restart?(map?: string): void | Promise<void>;
+  setPaused?(paused: boolean): void;
+
   // Objects / scene
   find(query: { cls?: string; name?: string; limit?: number }): GameObject[];
   getObject(id: string): GameObject | null;
   setProperty(id: string, prop: string, value: unknown): boolean;
   callMethod(id: string, method: string, args: Record<string, unknown>): unknown;
-  describe(id: string): { cls: string; props: string[]; methods: string[] } | null;
+  describe(id: string): {
+    cls?: string;
+    props?: string[];
+    methods?: string[] | Record<string, string[]>;
+    Name?: string;
+    Class?: string;
+    Properties?: unknown[];
+    Functions?: unknown[];
+  } | null;
 
   // Screen text (HUD)
   getScreen(): Record<string, string>;
@@ -76,10 +112,7 @@ export interface AutopilotGameApi {
   getMovement(): Movement;
 
   // Transforms of objects
-  getTransforms(ids: string[]): Record<string, {
-    at: { x: number; y: number; z: number };
-    active: boolean;
-  }>;
+  getTransforms(ids: string[]): Record<string, TransformEntry | null>;
 
   // Input
   keyDown(key: string): void;

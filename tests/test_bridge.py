@@ -132,6 +132,42 @@ def test_the_bridge_takes_plugins_and_refuses_web_pages():
         served["link"].server.shutdown()
 
 
+def test_the_bridge_allows_localhost_ports_for_browser_engine(monkeypatch):
+    """When AUTOPILOT_ENGINE=browser, localhost/127.0.0.1 origins with ports are allowed, while untrusted sites remain
+    refused."""
+    import threading
+
+    from websockets.exceptions import InvalidStatus
+    from websockets.sync.client import connect as ws_connect
+
+    monkeypatch.setenv("AUTOPILOT_ENGINE", "browser")
+    assert bridge.BROWSER_ORIGIN_RE in bridge.bridge_origins()
+
+    port = 18770
+    served = {}
+    threading.Thread(target=lambda: served.update(link=bridge.serve_local(port=port, wait=5)), daemon=True).start()
+    hello = json.dumps({"type": "hello", "protocol": bridge.PROTOCOL, "project": "city", "engine": "browser"})
+
+    def opens(origin):
+        for _ in range(50):
+            try:
+                with ws_connect(f"ws://127.0.0.1:{port}/v1/bridge", origin=origin, proxy=None) as ws:
+                    ws.send(hello)
+                    return json.loads(ws.recv(timeout=5))["type"] == "welcome"
+            except InvalidStatus as e:
+                assert e.response.status_code == 403
+                return False
+            except OSError:
+                time.sleep(0.05)
+        raise AssertionError("the bridge didn't start")
+
+    try:
+        assert opens("http://localhost:5173") and opens("http://127.0.0.1:3000")
+        assert not opens("https://untrusted.invalid")
+    finally:
+        served["link"].server.shutdown()
+
+
 def test_a_pipe_joins_a_plugins_parts_to_its_link():
     """A plugin's parts that can't reach each other (Roblox Studio's edit, server and client DataModels) meet through
     /v1/pipe/<the link's session>: the editor's {"type": "pipe"} frames go to every part, a part's "to": "brain" frames

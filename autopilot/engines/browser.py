@@ -30,27 +30,32 @@ class Browser(OpEngine):
     # -- the project on disk -----------------------------------------------------------
 
     def project_at(self, path):
-        """The project folder: a directory containing package.json with the autopilot dep,
-        or any directory when AUTOPILOT_ENGINE=browser."""
-        if not path:
+        """The project folder: a directory (or ancestor) containing package.json with the autopilot dep,
+        or containing package.json when AUTOPILOT_ENGINE=browser."""
+        if not path or not os.path.exists(path):
             return None
         path = os.path.abspath(path)
-        folder = os.path.dirname(path) if os.path.isfile(path) else path
-        pkg = os.path.join(folder, "package.json")
-        if not os.path.isfile(pkg):
-            return None
-        if os.environ.get("AUTOPILOT_ENGINE", "").strip().lower() == "browser":
-            return folder
-        try:
-            with open(pkg, encoding="utf-8") as f:
-                data = json.load(f)
-            deps = {}
-            deps.update(data.get("dependencies") or {})
-            deps.update(data.get("devDependencies") or {})
-            if "@ramenvr/autopilot-browser" in deps:
-                return folder
-        except (OSError, json.JSONDecodeError, ValueError):
-            pass
+        cur = os.path.dirname(path) if os.path.isfile(path) else path
+        force = os.environ.get("AUTOPILOT_ENGINE", "").strip().lower() == "browser"
+        while True:
+            pkg = os.path.join(cur, "package.json")
+            if os.path.isfile(pkg):
+                if force:
+                    return cur
+                try:
+                    with open(pkg, encoding="utf-8") as f:
+                        data = json.load(f)
+                    deps = {}
+                    deps.update(data.get("dependencies") or {})
+                    deps.update(data.get("devDependencies") or {})
+                    if "@ramenvr/autopilot-browser" in deps:
+                        return cur
+                except (OSError, json.JSONDecodeError, ValueError):
+                    pass
+            parent = os.path.dirname(cur)
+            if parent == cur:
+                break
+            cur = parent
         return None
 
     def project_name(self, project):
@@ -68,26 +73,31 @@ class Browser(OpEngine):
 
     # -- the game backend --------------------------------------------------------------
 
+    def name_of(self, path):
+        """The object id as its name ('tile:3456' stays 'tile:3456'; a slash path takes its last segment)."""
+        return str(path).rstrip("/").rsplit("/", 1)[-1]
+
     def all_actors(self, game):
         """The scene's things: find all objects by running the find op with no filter."""
         return list((game.request("find", {}) or {}).get("objects") or [])
 
     # -- the codex ---------------------------------------------------------------------
 
-    def skip_dir(self, name):
-        return name in SKIP_DIRS
+    def skip_dir(self, rel):
+        base = os.path.basename(rel)
+        return base in SKIP_DIRS or base.startswith(".")
 
     def codex_path(self, rel):
         """TS/TSX/JS/JSX/CSS/HTML/JSON files, excluding skip dirs; kept at their project paths."""
         parts = safe_rel(rel)
         if parts is None:
             return None
-        # Skip any path that passes through a skip directory
+        # Skip any path that passes through a skip or hidden directory
         for part in parts[:-1]:
-            if part in SKIP_DIRS:
+            if part in SKIP_DIRS or part.startswith("."):
                 return None
         # Only include recognised code extensions
-        if not rel.endswith(CODE_EXT):
+        if not rel.lower().endswith(CODE_EXT):
             return None
         # Never include autopilot's own codex files
         if os.path.basename(rel) in CODEX_OWN:
@@ -98,14 +108,12 @@ class Browser(OpEngine):
 
     def to_kit(self, value):
         """Browser pixel (x right, y down) → kit (X=x, Y=0, Z=-y); 1 px = 1 cm."""
-        if isinstance(value, dict):
-            x = float(value.get("x", 0))
-            y = float(value.get("y", 0))
-            return Vec(x, 0.0, -y)
-        return Vec(0.0, 0.0, 0.0)
+        n = Vec.of(value)
+        return None if n is None else Vec(n.x, 0.0, -n.y)
 
     def to_native(self, vec):
-        """Kit → browser pixel: x=vec.X, y=-vec.Z."""
-        if not isinstance(vec, Vec):
+        """Kit → browser pixel: x=vec.x, y=-vec.z."""
+        k = Vec.of(vec)
+        if k is None:
             return {"x": 0.0, "y": 0.0}
-        return {"x": vec.x, "y": -vec.z}
+        return {"x": k.x, "y": -k.z}

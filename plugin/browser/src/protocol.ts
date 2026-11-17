@@ -1,4 +1,5 @@
 export interface HelloFrame {
+  type: "hello";
   protocol: 1;
   engine: "browser";
   project: string;
@@ -8,42 +9,61 @@ export interface HelloFrame {
 }
 
 export interface RequestFrame {
+  type?: "request";
   id: number;
   op: string;
+  args?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
 export interface ResponseFrame {
+  type: "response";
   id: number;
+  ok: boolean;
   result?: unknown;
   status?: number;
   error?: string;
+  t?: number;
 }
 
 export type EventType = "heartbeat" | "log" | "finding" | "session" | "usage" | "run_kind";
 
 export interface HeartbeatEvent {
-  type: "heartbeat";
-  game_time: number;
+  kind: "heartbeat";
+  t?: number;
   fps: number;
+  paused?: boolean;
 }
 
 export interface LogEvent {
-  type: "log";
-  level: "error" | "warning";
-  text: string;
+  kind: "log";
+  t?: number;
+  level?: "error" | "warning";
+  verbosity?: string;
+  message: string;
 }
 
 export interface FindingEvent {
-  type: "finding";
-  name: string;
-  text: string;
-  [key: string]: unknown;
+  kind: "finding";
+  t?: number;
+  finding: {
+    detector: string;
+    summary: string;
+    signature?: string;
+    [key: string]: unknown;
+  };
 }
 
 export interface SessionEvent {
-  type: "session";
+  kind: "session";
+  t?: number;
   running: boolean;
 }
 
 export type PluginEvent = HeartbeatEvent | LogEvent | FindingEvent | SessionEvent;
+
+export interface EventsFrame {
+  type: "events";
+  t: number;
+  events: PluginEvent[];
+}

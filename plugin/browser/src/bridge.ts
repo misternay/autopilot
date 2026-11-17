@@ -1,4 +1,4 @@
-import type { HelloFrame, PluginEvent, RequestFrame, ResponseFrame } from './protocol.js';
+import type { EventsFrame, HelloFrame, RequestFrame, ResponseFrame } from './protocol.js';
 
 type RequestHandler = (frame: RequestFrame) => void;
 type CancelFn = () => void;
@@ -6,6 +6,7 @@ type CancelFn = () => void;
 export class BridgeConnection {
   private ws: WebSocket | null = null;
   private reconnectDelay = 1000;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private address: string;
   private hello: HelloFrame;
   private handler: RequestHandler | null = null;
@@ -21,6 +22,7 @@ export class BridgeConnection {
 
   connect(): void {
     if (this.destroyed) return;
+    this.clearReconnect();
     try {
       const ws = new WebSocket(this.address);
       this.ws = ws;
@@ -39,8 +41,10 @@ export class BridgeConnection {
           return;
         }
         if (typeof frame !== 'object' || frame === null) return;
-        if ('id' in frame) {
-          this.handler?.(frame as RequestFrame);
+        const f = frame as Record<string, unknown>;
+        if ((f['type'] === 'request' || ('id' in f && 'op' in f))
+            && typeof f['id'] === 'number' && typeof f['op'] === 'string') {
+          this.handler?.(f as RequestFrame);
         }
       });
 
@@ -60,8 +64,16 @@ export class BridgeConnection {
 
   private scheduleReconnect(): void {
     if (this.destroyed) return;
-    setTimeout(() => this.connect(), this.reconnectDelay);
+    this.clearReconnect();
+    this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);
+  }
+
+  private clearReconnect(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   private startHeartbeat(): void {
@@ -69,7 +81,11 @@ export class BridgeConnection {
     this.heartbeatTimer = setInterval(() => {
       const api = window.__autopilot__;
       const gameTime = api ? api.getGameTime() : 0;
-      this.send({ type: 'heartbeat', game_time: gameTime, fps: 60 });
+      this.send({
+        type: 'events',
+        t: gameTime,
+        events: [{ kind: 'heartbeat', t: gameTime, fps: 60, paused: api ? !api.isRunning() : false }],
+      });
     }, 1000);
   }
 
@@ -91,7 +107,7 @@ export class BridgeConnection {
     return () => this.cancels.delete(fn);
   }
 
-  send(frame: ResponseFrame | PluginEvent): void {
+  send(frame: ResponseFrame | EventsFrame): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(frame));
     }
@@ -103,6 +119,7 @@ export class BridgeConnection {
 
   disconnect(): void {
     this.destroyed = true;
+    this.clearReconnect();
     this.stopHeartbeat();
     this.cancelAll();
     if (this.ws) {
